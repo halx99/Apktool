@@ -137,13 +137,16 @@ public class Androlib {
         mAndRes.decodeManifestWithResources(resTable, apkFile, outDir);
     }
 
-    public void decodeRawFiles(ExtFile apkFile, File outDir)
+    public void decodeRawFiles(ExtFile apkFile, File outDir, short decodeAssetMode)
             throws AndrolibException {
         LOGGER.info("Copying assets and libs...");
         try {
             Directory in = apkFile.getDirectory();
-            if (in.containsDir("assets")) {
-                in.copyToDir(outDir, "assets");
+
+            if (decodeAssetMode == ApkDecoder.DECODE_ASSETS_FULL) {
+                if (in.containsDir("assets")) {
+                    in.copyToDir(outDir, "assets");
+                }
             }
             if (in.containsDir("lib")) {
                 in.copyToDir(outDir, "lib");
@@ -284,21 +287,7 @@ public class Androlib {
 
         if (meta.sdkInfo != null && meta.sdkInfo.get("minSdkVersion") != null) {
             String minSdkVersion = meta.sdkInfo.get("minSdkVersion");
-
-            // Preview builds use short letter for API versions
-            switch (minSdkVersion) {
-                case "M":
-                    mMinSdkVersion = ResConfigFlags.SDK_MNC;
-                    break;
-                case "N":
-                    mMinSdkVersion = ResConfigFlags.SDK_NOUGAT;
-                    break;
-                case "O":
-                    mMinSdkVersion = ResConfigFlags.SDK_O;
-                    break;
-                default:
-                    mMinSdkVersion = Integer.parseInt(meta.sdkInfo.get("minSdkVersion"));
-            }
+            mMinSdkVersion = mAndRes.getMinSdkVersionFromAndroidCodename(meta, minSdkVersion);
         }
 
         if (outFile == null) {
@@ -307,25 +296,12 @@ public class Androlib {
         }
 
         new File(appDir, APK_DIRNAME).mkdirs();
-        buildSources(appDir);
-        buildNonDefaultSources(appDir);
-
         File manifest = new File(appDir, "AndroidManifest.xml");
         File manifestOriginal = new File(appDir, "AndroidManifest.xml.orig");
 
-        if (manifest.isFile() && manifest.exists()) {
-            try {
-
-                if (manifestOriginal.exists()) {
-                    manifestOriginal.delete();
-                }
-                FileUtils.copyFile(manifest, manifestOriginal);
-                ResXmlPatcher.fixingPublicAttrsInProviderAttributes(manifest);
-            } catch (IOException ex) {
-                throw new AndrolibException(ex.getMessage());
-            }
-        }
-
+        buildSources(appDir);
+        buildNonDefaultSources(appDir);
+        buildManifestFile(appDir, manifest, manifestOriginal);
         buildResources(appDir, meta.usesFramework);
         buildLib(appDir);
         buildLibs(appDir);
@@ -338,11 +314,31 @@ public class Androlib {
 
         // we copied the AndroidManifest.xml to AndroidManifest.xml.orig so we can edit it
         // lets restore the unedited one, to not change the original
-        if (manifest.isFile() && manifest.exists()) {
+        if (manifest.isFile() && manifest.exists() && manifestOriginal.isFile()) {
             try {
                 if (new File(appDir, "AndroidManifest.xml").delete()) {
                     FileUtils.moveFile(manifestOriginal, manifest);
                 }
+            } catch (IOException ex) {
+                throw new AndrolibException(ex.getMessage());
+            }
+        }
+    }
+
+    private void buildManifestFile(File appDir, File manifest, File manifestOriginal)
+            throws AndrolibException {
+
+        // If we decoded in "raw", we cannot patch AndroidManifest
+        if (new File(appDir, "resources.arsc").exists()) {
+            return;
+        }
+        if (manifest.isFile() && manifest.exists()) {
+            try {
+                if (manifestOriginal.exists()) {
+                    manifestOriginal.delete();
+                }
+                FileUtils.copyFile(manifest, manifestOriginal);
+                ResXmlPatcher.fixingPublicAttrsInProviderAttributes(manifest);
             } catch (IOException ex) {
                 throw new AndrolibException(ex.getMessage());
             }

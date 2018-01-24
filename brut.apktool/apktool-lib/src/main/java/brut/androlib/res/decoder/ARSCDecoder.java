@@ -154,12 +154,12 @@ public class ARSCDecoder {
 
         while (type == Header.TYPE_TYPE) {
             readTableType();
-            
+
             // skip "TYPE 8 chunks" and/or padding data at the end of this chunk
-            if(mCountIn.getCount() < mHeader.endPosition) {
+            if (mCountIn.getCount() < mHeader.endPosition) {
                 mCountIn.skip(mHeader.endPosition - mCountIn.getCount());
             }
-            
+
             type = nextChunk().type;
 
             addMissingResSpecs();
@@ -192,7 +192,8 @@ public class ARSCDecoder {
             mTypeSpec = mResTypeSpecs.get(typeId);
         }
 
-        /* res0, res1 */mIn.skipBytes(3);
+        int typeFlags = mIn.readByte();
+        /* reserved */mIn.skipBytes(2);
         int entryCount = mIn.readInt();
         int entriesStart = mIn.readInt();
         mMissingResSpecs = new boolean[entryCount];
@@ -206,6 +207,10 @@ public class ARSCDecoder {
         if (position != mCountIn.getCount()) {
             mIn.skipBytes(position - mCountIn.getCount());
         }
+
+        if (typeFlags == 1) {
+            LOGGER.info("Sparse type flags detected: " + mTypeSpec.getName());
+        }
         int[] entryOffsets = mIn.readIntArray(entryCount);
 
         if (flags.isInvalid) {
@@ -218,27 +223,48 @@ public class ARSCDecoder {
         }
 
         mType = flags.isInvalid && !mKeepBroken ? null : mPkg.getOrCreateConfig(flags);
+        HashMap<Integer, EntryData> offsetsToEntryData = new HashMap<Integer, EntryData>();
+
+        for (int offset : entryOffsets) {
+            if (offset == -1 || offsetsToEntryData.containsKey(offset)) {
+                continue;
+            }
+
+            offsetsToEntryData.put(offset, readEntryData());
+        }
 
         for (int i = 0; i < entryOffsets.length; i++) {
             if (entryOffsets[i] != -1) {
                 mMissingResSpecs[i] = false;
                 mResId = (mResId & 0xffff0000) | i;
-                readEntry();
+                EntryData entryData = offsetsToEntryData.get(entryOffsets[i]);
+                readEntry(entryData);
             }
         }
 
         return mType;
     }
 
-    private void readEntry() throws IOException, AndrolibException {
+
+    private EntryData readEntryData() throws IOException, AndrolibException {
         short size = mIn.readShort();
         if (size < 0) {
             throw new AndrolibException("Entry size is under 0 bytes.");
         }
+
         short flags = mIn.readShort();
         int specNamesId = mIn.readInt();
-
         ResValue value = (flags & ENTRY_FLAG_COMPLEX) == 0 ? readValue() : readComplexEntry();
+        EntryData entryData = new EntryData();
+        entryData.mFlags = flags;
+        entryData.mSpecNamesId = specNamesId;
+        entryData.mValue = value;
+        return entryData;
+    }
+
+    private void readEntry(EntryData entryData) throws AndrolibException {
+        int specNamesId = entryData.mSpecNamesId;
+        ResValue value = entryData.mValue;
 
         if (mTypeSpec.isString() && value instanceof ResFileValue) {
             value = new ResStringValue(value.toString(), ((ResFileValue) value).getRawIntValue());
@@ -375,9 +401,11 @@ public class ARSCDecoder {
         }
 
         byte screenLayout2 = 0;
+        byte colorMode = 0;
         if (size >= 52) {
             screenLayout2 = mIn.readByte();
-            mIn.skipBytes(3); // reserved padding
+            colorMode = mIn.readByte();
+            mIn.skipBytes(2); // reserved padding
             read = 52;
         }
 
@@ -413,7 +441,8 @@ public class ARSCDecoder {
                 orientation, touchscreen, density, keyboard, navigation,
                 inputFlags, screenWidth, screenHeight, sdkVersion,
                 screenLayout, uiMode, smallestScreenWidthDp, screenWidthDp,
-                screenHeightDp, localeScript, localeVariant, screenLayout2, isInvalid, size);
+                screenHeightDp, localeScript, localeVariant, screenLayout2,
+                colorMode, isInvalid, size);
     }
 
     private char[] unpackLanguageOrRegion(byte in0, byte in1, char base) throws AndrolibException {
@@ -519,6 +548,8 @@ public class ARSCDecoder {
     private HashMap<Integer, ResTypeSpec> mResTypeSpecs = new HashMap<>();
 
     private final static short ENTRY_FLAG_COMPLEX = 0x0001;
+    private final static short ENTRY_FLAG_PUBLIC = 0x0002;
+    private final static short ENTRY_FLAG_WEAK = 0x0004;
 
     public static class Header {
         public final short type;
@@ -558,6 +589,12 @@ public class ARSCDecoder {
             this.offset = offset;
             this.count = count;
         }
+    }
+
+    private class EntryData {
+        public short mFlags;
+        public int mSpecNamesId;
+        public ResValue mValue;
     }
 
     private static final Logger LOGGER = Logger.getLogger(ARSCDecoder.class.getName());

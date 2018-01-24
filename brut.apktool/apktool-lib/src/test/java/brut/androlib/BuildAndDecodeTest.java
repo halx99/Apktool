@@ -166,6 +166,17 @@ public class BuildAndDecodeTest {
     }
 
     @Test
+    public void valuesExtraLongExactLengthTest() throws BrutException {
+        Map<String, String> strs = TestUtils.parseStringsXml(new File(sTestNewDir, "res/values-en/strings.xml"));
+
+        // long_string6 should be exactly 0x8888 chars of "a"
+        // the valuesExtraLongTest() should handle this
+        // but such an edge case, want a specific test
+        String aaaa = strs.get("long_string6");
+        assertEquals(0x8888, aaaa.length());
+    }
+
+    @Test
     public void crossTypeTest() throws BrutException {
         compareValuesFiles("values-mcc003/strings.xml");
         compareValuesFiles("values-mcc003/integers.xml");
@@ -197,16 +208,26 @@ public class BuildAndDecodeTest {
         compareXmlFiles("res/layout/issue1130.xml");
     }
 
+    @Test
+    public void xmlUniformAutoTextTest() throws BrutException {
+        compareXmlFiles("res/layout/issue1674.xml");
+    }
+
     @Test(expected = AssertionError.class)
     public void xmlFillParentBecomesMatchTest() throws BrutException {
         compareXmlFiles("res/layout/issue1274.xml");
     }
 
     @Test
+    public void xmlCustomAttrsNotAndroidTest() throws BrutException {
+        compareXmlFiles("res/layout/issue1157.xml");
+    }
+
+    @Test
     public void qualifiersTest() throws BrutException {
         compareValuesFiles("values-mcc004-mnc4-en-rUS-ldrtl-sw100dp-w200dp-h300dp"
-                + "-xlarge-long-round-land-desk-night-xhdpi-finger-keyssoft-12key"
-                + "-navhidden-dpad/strings.xml");
+                + "-xlarge-long-round-highdr-land-desk-night-xhdpi-finger-keyssoft-12key"
+                + "-navhidden-dpad-v26/strings.xml");
     }
 
     @Test
@@ -293,6 +314,28 @@ public class BuildAndDecodeTest {
     public void api23ConfigurationsTest() throws BrutException, IOException {
         compareValuesFiles("values-round/strings.xml");
         compareValuesFiles("values-notround/strings.xml");
+    }
+
+    @Test
+    public void api26ConfigurationsTest() throws BrutException, IOException {
+        compareValuesFiles("values-widecg-v26/strings.xml");
+        compareValuesFiles("values-lowdr-v26/strings.xml");
+        compareValuesFiles("values-nowidecg-v26/strings.xml");
+        compareValuesFiles("values-vrheadset-v26/strings.xml");
+    }
+
+    @Test
+    public void fontTest() throws BrutException, IOException {
+        File fontXml = new File((sTestNewDir + "/res/font"), "lobster.xml");
+        File fontFile = new File((sTestNewDir + "/res/font"), "lobster_regular.otf");
+
+        // Per #1662, ensure font file is not encoded.
+        assertTrue(fontXml.isFile());
+        compareXmlFiles("/res/font/lobster.xml");
+
+        // If we properly skipped decoding the font (otf) file, this file should not exist
+        assertFalse((new File((sTestNewDir + "/res/values"), "fonts.xml")).isFile());
+        assertTrue(fontFile.isFile());
     }
 
     @Test
